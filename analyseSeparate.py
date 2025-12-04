@@ -2,29 +2,47 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-monte_carlo = pd.read_csv("Tests\Monte Carlo\T8_Step_10_5\monte_carlo_results_int.csv")
-q_learning = pd.read_csv("Tests\Q-Learning\T7_Step_10_5\qlearning_results_int.csv")
-sarsa = pd.read_csv("Tests\SARSA\T6_Step_10_5\sarsa_results_int.csv")
+#monte_carlo = pd.read_csv("Tests\Monte Carlo\T13_v5_discount01_noStep\monte_carlo_results_int.csv")
+#q_learning = pd.read_csv("Tests\Q-Learning\T12_Freeze_No_Step_size40\qlearning_results_int.csv")
+#sarsa = pd.read_csv("Tests\SARSA\T12_Freeze_No_Step_size40\sarsa_results_int.csv")
+#monte_carlo = pd.read_csv("Tests\Monte Carlo\T13_v3_discount03\monte_carlo_results_int.csv")
+#q_learning = pd.read_csv("Tests\Q-Learning\T13_Freeze_Step_3_1_size40\qlearning_results_int.csv")
+#sarsa = pd.read_csv("Tests\SARSA\T13_Freeze_Step_3_1_size40\sarsa_results_int.csv")
+
+monte_carlo = pd.read_csv("Tests\Monte Carlo\T14_Step_3_1\monte_carlo_results_int.csv")
+q_learning = pd.read_csv("Tests\Q-Learning\T14_Step_3_1\qlearning_results_int.csv")
+sarsa = pd.read_csv("Tests\SARSA\T14_Step_3_1\sarsa_results_int.csv")
+#q_learning = pd.read_csv("Tests\Q-Learning\T15_NoStep\qlearning_results_int.csv")
+#sarsa = pd.read_csv("Tests\SARSA\T15_NoStep\sarsa_results_int.csv")
+#monte_carlo = pd.read_csv("Tests\Monte Carlo\T15_NoStep\monte_carlo_results_int.csv")
+#q_learning = pd.read_csv("Tests\Q-Learning\T16_fixedSkip_NoStep\qlearning_results_int.csv")
+#sarsa = pd.read_csv("Tests\SARSA\T16_fixedSkip_NoStep\sarsa_results_int.csv")
 #monte_carlo_long = pd.read_csv("Tests\Monte Carlo\TLarge1\monte_carlo_results_int.csv")
 
 
 figure, axis = plt.subplots(1, 1)
 
 
+
 #Reward
 moving_avg = np.convolve(monte_carlo['Reward'], np.ones((2000,)) / 2000, mode="valid")
+moving_avgM = moving_avg
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="blue", label="Reward")
 
 moving_avg = np.convolve(q_learning['Reward'], np.ones((2000,)) / 2000, mode="valid")
+moving_avgQ = moving_avg
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="red", label="Reward")
 
 moving_avg = np.convolve(sarsa['Reward'], np.ones((2000,)) / 2000, mode="valid")
+moving_avgS = moving_avg
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="green", label="Reward")
 '''
 moving_avg = np.convolve(monte_carlo_long['Reward'], np.ones((2000,)) / 2000, mode="valid")
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Reward")
 '''
 axis.set_title("Reward")
+plt.ylabel(f"Recompensa (média móvel 2000 episódios)")
+plt.xlabel("Epidódios")
 
 axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_anchor=(0.5, -0.05),
           fancybox=True, shadow=True, ncol=3)
@@ -86,6 +104,8 @@ moving_avg = np.convolve(new_monte_carlo_long_hits, np.ones((3000,)) / 3000, mod
 axis[0, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Hits")
 '''
 axis.set_title("Hits")
+plt.ylabel(f"Taxa de Colisões (média móvel 3000 episódios)")
+plt.xlabel("Epidódios")
 
 axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_anchor=(0.5, -0.05),
           fancybox=True, shadow=True, ncol=3)
@@ -96,19 +116,24 @@ axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_a
 figure, axis = plt.subplots(1, 1)
 
 #Heading
-moving_avg = np.convolve(monte_carlo['Heading'], np.ones((2000,)) / 2000, mode="valid")
+headingQ = [i*15 for i in q_learning['Heading']]
+headingS = [i*15 for i in sarsa['Heading']]
+headingM = [i*15 for i in monte_carlo['Heading']]
+moving_avg = np.convolve(headingM, np.ones((2000,)) / 2000, mode="valid")
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="blue", label="Heading")
 
-moving_avg = np.convolve(q_learning['Heading'], np.ones((2000,)) / 2000, mode="valid")
+moving_avg = np.convolve(headingQ, np.ones((2000,)) / 2000, mode="valid")
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="red", label="Heading")
 
-moving_avg = np.convolve(sarsa['Heading'], np.ones((2000,)) / 2000, mode="valid")
+moving_avg = np.convolve(headingS, np.ones((2000,)) / 2000, mode="valid")
 axis.plot([i for i in range(len(moving_avg))], moving_avg, color="green", label="Heading")
 '''
 moving_avg = np.convolve(monte_carlo_long['Heading'], np.ones((2000,)) / 2000, mode="valid")
 axis[1, 0].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Heading")
 '''
 axis.set_title("Heading")
+plt.ylabel(f"Diferença de Heading (média móvel 2000 episódios)")
+plt.xlabel("Epidódios")
 
 axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_anchor=(0.5, -0.05),
           fancybox=True, shadow=True, ncol=3)
@@ -130,8 +155,66 @@ moving_avg = np.convolve(monte_carlo_long['Distance'], np.ones((2000,)) / 2000, 
 axis[1, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Distance")
 '''
 axis.set_title("Distance")
+plt.ylabel(f"Distância (média móvel 2000 episódios)")
+plt.xlabel("Epidódios")
 
 axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_anchor=(0.5, -0.05),
           fancybox=True, shadow=True, ncol=3)
+
+
+figure, axis = plt.subplots(1, 1)
+
+#Time
+moving_avg = np.convolve(monte_carlo['Time'], np.ones((2000,)) / 2000, mode="valid")
+axis.plot([i for i in range(len(moving_avg))], moving_avg, color="blue", label="Time")
+
+moving_avg = np.convolve(q_learning['Time'], np.ones((2000,)) / 2000, mode="valid")
+axis.plot([i for i in range(len(moving_avg))], moving_avg, color="red", label="Time")
+
+moving_avg = np.convolve(sarsa['Time'], np.ones((2000,)) / 2000, mode="valid")
+axis.plot([i for i in range(len(moving_avg))], moving_avg, color="green", label="Time")
+'''
+moving_avg = np.convolve(monte_carlo_long['Distance'], np.ones((2000,)) / 2000, mode="valid")
+axis[1, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Distance")
+'''
+axis.set_title("Time")
+plt.ylabel(f"Tempo (média móvel 2000 episódios)")
+plt.xlabel("Epidódios")
+
+axis.legend(["Monte Carlo", "Q-Learning", "SARSA"], loc='upper right', bbox_to_anchor=(0.5, -0.05),
+          fancybox=True, shadow=True, ncol=3)
+
+
+
+mediaQfinal = sum(moving_avgQ[-10:-1])/len(moving_avgQ[-10:-1])
+mediaSfinal = sum(moving_avgS[-10:-1])/len(moving_avgS[-10:-1])
+mediaMfinal = sum(moving_avgM[-10:-1])/len(moving_avgM[-10:-1])
+
+targetQ = mediaQfinal-(mediaQfinal-moving_avgQ[0])*0.1
+targetS = mediaSfinal-(mediaSfinal-moving_avgS[0])*0.1
+targetM = mediaMfinal-(mediaMfinal-moving_avgM[0])*0.1
+
+noventaQ = 0
+noventaS = 0
+noventaM = 0
+
+for i in range(len(moving_avgQ)):
+    noventaQ = i
+    if moving_avgQ[i] >= targetQ:
+        break
+
+for i in range(len(moving_avgS)):
+    noventaS = i
+    if moving_avgS[i] >= targetS:
+        break
+
+for i in range(len(moving_avgM)):
+    noventaM = i
+    if moving_avgM[i] >= targetM:
+        break
+
+print("Q: Max Med:", mediaQfinal, "- Episode 90%:", noventaQ, "-Target 90:", targetQ, "- Time Final:", q_learning['Time'][len(q_learning['Time'])-2], "- Time 90%:", q_learning['Time'][noventaQ])
+print("S: Max Med:", mediaSfinal, "- Episode 90%:", noventaS, "-Target 90:", targetS, "- Time Final:", sarsa['Time'][len(sarsa['Time'])-2], "- Time 90%:", sarsa['Time'][noventaS])
+print("M: Max Med:", mediaMfinal, "- Episode 90%:", noventaM, "-Target 90:", targetM, "- Time Final:", monte_carlo['Time'][len(monte_carlo['Time'])-2], "- Time 90%:", monte_carlo['Time'][noventaM])
 
 plt.show()

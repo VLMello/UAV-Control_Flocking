@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 monte_carlo = pd.read_csv("Tests\Monte Carlo\T7_NoStep\monte_carlo_results_int.csv")
-q_learning = pd.read_csv("Tests\Q-Learning\T6_SemStep\qlearning_results_int.csv")
-sarsa = pd.read_csv("Tests\SARSA\T5_NoStep\sarsa_results_int.csv")
+q_learning = pd.read_csv("Tests\Q-Learning\T10_Freeze_Step_10_5\qlearning_results_int.csv")
+sarsa = pd.read_csv("Tests\SARSA\T10_Freeze_Step_10_5\sarsa_results_int.csv")
 #monte_carlo_long = pd.read_csv("Tests\Monte Carlo\TLarge1\monte_carlo_results_int.csv")
 
 

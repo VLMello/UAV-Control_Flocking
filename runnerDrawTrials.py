@@ -9,11 +9,11 @@ import math
 
 style.use("ggplot")
 
-SIZE = 80
+SIZE = 40
 Q_TABLE_BASE_SIZE = 29 # 28 for 20 and 61 for 61
 M_CARLO_BASE_SIZE = 56 # 28 for 20 and 61 for 61
 SHOW_SIZE = 800
-HM_EPISODES = 1
+HM_EPISODES = 10000
 MOVE_PENALTY = 1
 ENEMY_PENALTY = 500#1000000
 CLOSE_ENEMY_PENALTY = 0
@@ -34,20 +34,20 @@ SHOW_ROUNDED_POSITION = False
 SAFE_DISTANCE_LOW = 5
 SAFE_DISTANCE_HIGH = 9
 
-#start_q_table = ".\Tests\Q-Learning\T12_Freeze_No_Step_size40\qtable-planes-1762454062.pickle"# "TreinamentoA.pickle" # or filename
-#start_mc_table = ".\Tests\Monte Carlo\T13_v6_discount03_noStep\mc-planes-1762882272.pickle" 
-#start_sarsa_table = ".\Tests\SARSA\T12_Freeze_No_Step_size40\sarsa-planes-1762454048.pickle" 
+start_q_table = ".\Tests\Q-Learning\T12_Freeze_No_Step_size40\qtable-planes-1762454062.pickle"# "TreinamentoA.pickle" # or filename
+start_mc_table = ".\Tests\Monte Carlo\T13_v6_discount03_noStep\mc-planes-1762882272.pickle" 
+start_sarsa_table = ".\Tests\SARSA\T12_Freeze_No_Step_size40\sarsa-planes-1762454048.pickle" 
 
 ##start_q_table = ".\Tests\Q-Learning\T12_Freeze_No_Step_size40\qtable-planes-1762454062.pickle"# "TreinamentoA.pickle" # or filename
 ##start_mc_table = ".\Tests\Monte Carlo\T12_Freeze_No_Step_size40\mc-planes-1762519034.pickle" 
 ##start_sarsa_table = ".\Tests\SARSA\T12_Freeze_No_Step_size40\sarsa-planes-1762454048.pickle" 
 
-start_q_table = ".\Tests\Q-Learning\T13_Freeze_Step_3_1_size40\qtable-planes-1762740006.pickle"# "TreinamentoA.pickle" # or filename
+#start_q_table = ".\Tests\Q-Learning\T13_Freeze_Step_3_1_size40\qtable-planes-1762740006.pickle"# "TreinamentoA.pickle" # or filename
 ##start_mc_table = ".\Tests\Monte Carlo\T13_Freeze_Step_3_1_size40\mc-planes-1762739606.pickle" 
 ##start_mc_table = ".\Tests\Monte Carlo\T13_v2_discount06\mc-planes-1762776293.pickle" 
 ##start_mc_table = ".\Tests\Monte Carlo\T13_v3_discount03\mc-planes-1762800416.pickle" 
-start_mc_table = ".\Tests\Monte Carlo\T13_v4_discount01\mc-planes-1762831233.pickle" 
-start_sarsa_table = ".\Tests\SARSA\T13_Freeze_Step_3_1_size40\sarsa-planes-1762739879.pickle" 
+#start_mc_table = ".\Tests\Monte Carlo\T13_v4_discount01\mc-planes-1762831233.pickle" 
+#start_sarsa_table = ".\Tests\SARSA\T13_Freeze_Step_3_1_size40\sarsa-planes-1762739879.pickle" 
 
 #commands_sequence = "commands-leader-1752508659.pickle" # or filename
 #commands_sequence = "commands-leader-1762468034.pickle" # or filename
@@ -197,6 +197,10 @@ with open(commands_sequence, "rb") as f:
 #print(q_table)
 episode_rewards = []
 
+distsQ = []
+distsS = []
+distsM = []
+
 for episode in range(HM_EPISODES):
     enemy = Plane(np.floor(SIZE/2), np.floor(SIZE/2))
     player = Plane(enemy.x + SAFE_DISTANCE_HIGH,enemy.y + SAFE_DISTANCE_HIGH)
@@ -219,8 +223,8 @@ for episode in range(HM_EPISODES):
 
     #test = Plane(int(SIZE/2), int(SIZE/2))
     if episode % SHOW_EVERY == 0:
-        print(f"on #{episode}, epsilon is {epsilon}")
-        print(f"{SHOW_EVERY} ep mean: {np.mean(episode_rewards[-SHOW_EVERY:])}")
+        #print(f"on #{episode}, epsilon is {epsilon}")
+        #print(f"{SHOW_EVERY} ep mean: {np.mean(episode_rewards[-SHOW_EVERY:])}")
         show = True
     else:
         show = False
@@ -231,8 +235,10 @@ for episode in range(HM_EPISODES):
     player2_dots = []
     player3_dots = []
 
-    for i in range(120):
-        roll_command = com_seq[i]
+    for i in range(300):
+        roll_command = np.random.randint(0, 7)
+        if roll_command >= 2:
+            roll_command = 1
 
         player_aprox_X = int(np.round(player.x, decimals=0))
         player_aprox_Y = int(np.round(player.y, decimals=0))
@@ -270,8 +276,6 @@ for episode in range(HM_EPISODES):
         Z5 = player2.get_discrete_roll()
         Z6 = roll_command
         obs = (Z1, Z2, Z3, Z4, Z5, Z6)
-        #obsOL = player2.get_obs(enemy, roll_command)
-        #obsOF = player2.get_obs(player, roll_command)
 
         # GET THE ACTION
         #action = np.argmax([np.argmax(q_table[obsOL],np.argmax(q_table[obsOF]))])
@@ -314,22 +318,7 @@ for episode in range(HM_EPISODES):
         enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
 
                
-        #enemy.draw(colors[ENEMY_N])
-        #player.draw(colors[Q_N])
-        #player2.draw(colors[SARSA_N])
-        #player3.draw(colors[4])
-        
-
-        #ImageDraw.Draw(img).rectangle([(0, SHOW_SIZE), (SHOW_SIZE, SHOW_SIZE+45)], fill=(255, 255, 255))  # draws a black rectangle around the image
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+10), f"Episode: {episode} - Step: {i}", fill=(0, 0, 0))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+30), f"Reward: {reward} - Q: {q_table[obs]}", fill=(0, 0, 0))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+50), f"Leader - X: {enemy.x:.2f}, Y: {enemy.y:.2f}, H: {enemy.heading}, R: {enemy.roll} , S: {enemy.speed}", fill=(colors[ENEMY_N]))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+70), f"FollowerQL - X: {player.x:.2f}, Y: {player.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}", fill=(colors[Q_N]))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+90), f"FollowerMC - X: {player2.x:.2f}, Y: {player2.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}", fill=(colors[SARSA_N]))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+110), f"FollowerSARSA - X: {player2.x:.2f}, Y: {player2.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}", fill=(colors[4]))
-        #ImageDraw.Draw(img).text((10, SHOW_SIZE+90), f"Test - X: {test.x:.2f}, Y: {test.y:.2f}, H: {test.heading}, HC: {test.heading*360/HEADING_MAX}, sin: {np.sin(np.deg2rad(test.heading*360/HEADING_MAX)):.2f}, cos: {np.cos(np.deg2rad(test.heading*360/HEADING_MAX)):.2f}, R: {test.roll} , S: {test.speed}", fill=(0, 0, 0))
-        
-        
+     
         enemy_dots.append((enemy.x*ZOOM, enemy.y*ZOOM))
         player1_dots.append((player.x*ZOOM, player.y*ZOOM))
         player2_dots.append((player2.x*ZOOM, player2.y*ZOOM))
@@ -338,128 +327,76 @@ for episode in range(HM_EPISODES):
         episode_reward += reward
         if reward == -ENEMY_PENALTY:
             break
-        
-        #if i == 99:
-            #enemy.draw(colors[ENEMY_N])
-            #player.draw(colors[Q_N])
-            #player2.draw(colors[SARSA_N])
-            #player3.draw(colors[4])
-        
+
+    enemy_dotsX = []
+    enemy_dotsY = []
+    for dot in enemy_dots:
+        enemy_dotsX.append(dot[0]/ZOOM)
+        enemy_dotsY.append(SIZE-(dot[1]/ZOOM))
+
+    distances1 = []
+    i=0
+    for dot in player1_dots:
+        distances1.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
+        i+=1
+
+    distances2 = []
+    i=0
+    for dot in player2_dots:
+        distances2.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
+        i+=1
+
+    distances3 = []
+    i=0
+    for dot in player3_dots:
+        distances3.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
+        i+=1
+
+    distsQ.append(list(distances1))
+    distsS.append(list(distances3))
+    distsM.append(list(distances2))
 
     
 
-    #ImageDraw.Draw(img).circle(enemy_dots[0], fill=colors[ENEMY_N], radius=4)
-    #ImageDraw.Draw(img).circle(player1_dots[0], fill=colors[Q_N], radius=4)
-    #ImageDraw.Draw(img).circle(player2_dots[0], fill=colors[4], radius=4)
-    #ImageDraw.Draw(img).circle(player3_dots[0], fill=colors[SARSA_N], radius=4)
-
-    #ImageDraw.Draw(img).line(enemy_dots, fill=colors[ENEMY_N], width=2)
-    #ImageDraw.Draw(img).line(player1_dots, fill=colors[Q_N], width=2)
-    #ImageDraw.Draw(img).line(player2_dots, fill=colors[4], width=2)
-    #ImageDraw.Draw(img).line(player3_dots, fill=colors[SARSA_N], width=2)
-
-
     episode_rewards.append(episode_reward)
-    #cv2.imshow("image", np.array(img))  # show it!
-    #if cv2.waitKey(100) & 0xFF == ord('s'):
-    #    SHOW_ROUNDED_POSITION = not SHOW_ROUNDED_POSITION
-    #    cv2.waitKey(100)
 
-   # if reward == SAFE_PLACE_REWARD:  # crummy code to hang at the end if we reach abrupt end for good reasons or not.
-    #    if cv2.waitKey(100) & 0xFF == ord('q'):
-    #        break
-    #else:
-    #    if cv2.waitKey(100) & 0xFF == ord('q'):
-    #        break
+#print(distsQ)
 
 
+print("Teorico: ", str(len(distsQ)), "por", HM_EPISODES)
+print("QL: ", str(len(distsQ)), "por", str(len(distsQ[0])))
+distsQavg = []
+for i in range(300):
+    totalQ = 0
+    for j in range(HM_EPISODES):
+        totalQ += distsQ[j][i]
+    distsQavg.append(totalQ/len(distsQ))
 
-moving_avg = np.convolve(episode_rewards, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode="valid")
+distsSavg = []
+for i in range(300):
+    totalS = 0
+    for j in range(HM_EPISODES):
+        totalS += distsS[j][i]
+    distsSavg.append(totalS/len(distsS))
 
-enemy_dotsX = []
-enemy_dotsY = []
-for dot in enemy_dots:
-    enemy_dotsX.append(dot[0]/ZOOM)
-    enemy_dotsY.append(SIZE-(dot[1]/ZOOM))
+distsMavg = []
+for i in range(300):
+    totalM = 0
+    for j in range(HM_EPISODES):
+        totalM += distsM[j][i]
+    distsMavg.append(totalM/len(distsM))
 
-player1_dotsX = []
-player1_dotsY = []
-distances1 = []
-i=0
-for dot in player1_dots:
-    player1_dotsX.append(dot[0]/ZOOM)
-    player1_dotsY.append(SIZE-(dot[1]/ZOOM))
-    distances1.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-    i+=1
-
-player2_dotsX = []
-player2_dotsY = []
-distances2 = []
-i=0
-for dot in player2_dots:
-    player2_dotsX.append(dot[0]/ZOOM)
-    player2_dotsY.append(SIZE-(dot[1]/ZOOM))
-    distances2.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-    i+=1
-
-player3_dotsX = []
-player3_dotsY = []
-distances3 = []
-i=0
-for dot in player3_dots:
-    player3_dotsX.append(dot[0]/ZOOM)
-    player3_dotsY.append(SIZE-(dot[1]/ZOOM))
-    distances3.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-    i+=1
-
-print("Distaances" + str(distances1))
-
-plt.rcParams["figure.figsize"] = (10,10)
-plt.scatter(enemy_dotsX[0], enemy_dotsY[0], color="black")
-plt.scatter(player1_dotsX[0], player1_dotsY[0], color="red")
-plt.plot(enemy_dotsX, enemy_dotsY, color="black")
-plt.plot(player1_dotsX, player1_dotsY, color="red")
-plt.xlim(0, SIZE-1)
-plt.ylim(0, SIZE-1)
-plt.ylabel(f"Y")
-plt.xlabel("X")
-plt.title("Trajetória do Líder (preto) e Seguidor usando Q-Learning (vermelho)")
-plt.show()
 
 
 plt.rcParams["figure.figsize"] = (10,10)
-plt.scatter(enemy_dotsX[0], enemy_dotsY[0], color="black")
-plt.scatter(player2_dotsX[0], player2_dotsY[0], color="blue")
-plt.plot(enemy_dotsX, enemy_dotsY, color="black")
-plt.plot(player2_dotsX, player2_dotsY, color="blue")
-plt.xlim(0, SIZE-1)
-plt.ylim(0, SIZE-1)
-plt.ylabel(f"Y")
-plt.xlabel("X")
-plt.title("Trajetória do Líder (preto) e Seguidor usando Monte Carlo (azul)")
-plt.show()
-
-plt.rcParams["figure.figsize"] = (10,10)
-plt.scatter(enemy_dotsX[0], enemy_dotsY[0], color="black")
-plt.scatter(player3_dotsX[0], player3_dotsY[0], color="green")
-plt.plot(enemy_dotsX, enemy_dotsY, color="black")
-plt.plot(player3_dotsX, player3_dotsY, color="green")
-plt.xlim(0, SIZE-1)
-plt.ylim(0, SIZE-1)
-plt.ylabel(f"Y")
-plt.xlabel("X")
-plt.title("Trajetória do Líder (preto) e Seguidor usando SARSA (verde)")
-plt.show()
-
-plt.rcParams["figure.figsize"] = (10,10)
-plt.plot(distances1, color="red", label="Q-Learning")
-plt.plot(distances3, color="green", label="SARSA")
-plt.plot(distances2, color="blue", label="Monte Carlo")
-plt.xlim(0, SIZE-1)
-plt.ylim(0, max(max(distances1), max(distances2), max(distances3))+1)
+plt.plot(distsQavg, color="red", label="Q-Learning")
+plt.plot(distsSavg, color="green", label="SARSA")
+plt.plot(distsMavg, color="blue", label="Monte Carlo")
+plt.hlines(y=4, xmin=0, xmax=299, colors='grey', linestyles='--', lw=2, label='b1')
+plt.hlines(y=7, xmin=0, xmax=299, colors='grey', linestyles='--', lw=2, label='b2')
 plt.ylabel(f"Distância")
 plt.xlabel("Passo")
-plt.title("Comparação da distância entre o Líder e os Seguidores")
-plt.legend(["Q-Learning", "SARSA", "Monte Carlo"], loc='lower center', bbox_to_anchor=(0.5, -0.1),
+plt.title("Comparação da distância entre o Líder e os Seguidores durante " + str(HM_EPISODES) + " episódios")
+plt.legend(["Q-Learning", "SARSA", "Monte Carlo"], loc='lower center', bbox_to_anchor=(0.5, -0.11),
           fancybox=True, shadow=True, ncol=3)
 plt.show()
