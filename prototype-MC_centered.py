@@ -12,415 +12,421 @@ import time
 import math
 import pandas as pd
 
-style.use("ggplot")
-
-# DONE: Mais resultados, YAW, distância média durante os episódios
-# TODO: Experiment with episode length, epsilon decay, or returns averaging window
-
-SIZE = 40
-Q_TABLE_BASE_SIZE = 29  # 28 for 20 and 61 for 61
-SHOW_SIZE = 400
-HM_EPISODES = 2000000
-MOVE_PENALTY = 1
-ENEMY_PENALTY = 0 #10  # Bater no lider
-CLOSE_ENEMY_PENALTY = 0# 5  # Degrau perto do lider
-CLOSE_PENALTY_LINEAR = 100  # Slope perto do lider
-FAR_PENALTY = 0 #5  # Degrau longe do lider
-FAR_PENALTY_LINEAR = 100  # Slope longe do lider
-SAFE_PLACE_REWARD = 0  # Recompensa de local seguro
-
-iter_per_episode = 200
-
-HEADING_MAX = 24
-ROLL_MAX = 5
-CHOICES = 3
-
-epsilon = 0.9
-EPS_DECAY = 0.9999
-SHOW_EVERY = 1000
-SHOW_ANY = False
-
-SAFE_DISTANCE_LOW = 4 #6 #4
-SAFE_DISTANCE_HIGH = 6 #9 #7
-
-start_q_table = None  # or filename
-
-DISCOUNT = 0.3  # gamma for returns
-
-PLAYER_N = 1
-FOOD_N = 2
-ENEMY_N = 3
-
-d = {1: (255, 175, 0),
-     2: (0, 255, 0),
-     3: (0, 0, 255)
-     }
-
-ZOOM = int(SHOW_SIZE / SIZE)
 
 
-class Plane:
-    def __init__(self, x=None, y=None):
-        if x is None:
-            x = np.random.randint(0, SIZE)
-        if y is None:
-            y = np.random.randint(0, SIZE)
-        self.x = x
-        self.y = y
-        self.speed = 2
-        self.heading = np.random.randint(0, HEADING_MAX)  # 0-HEADING_MAX-1
-        self.roll = 0
-
-    def __str__(self):
-        return f"{self.x}, {self.y}"
-
-    def __sub__(self, other):
-        return (self.x - other.x, self.y - other.y)
-
-    def step(self, phi=False, follower=False):
-        if phi:
-            self.roll = max(min(self.roll + phi, 30), -30)
-            
-        if self.roll == 30:
-            self.heading = (self.heading+2) % HEADING_MAX
-        if self.roll == 15:
-            self.heading = (self.heading+1) % HEADING_MAX
-        elif self.roll == -15:
-            self.heading = (self.heading-1) % HEADING_MAX
-        elif self.roll == -30:
-            self.heading = (self.heading-2) % HEADING_MAX
-
-        if(follower):
-            follower.x -= self.speed * np.cos(np.deg2rad(self.heading*360/HEADING_MAX))
-            follower.y -= self.speed * np.sin(np.deg2rad(self.heading*360/HEADING_MAX))
-            
-            if follower.x < 0:
-                follower.x = 0
-            elif follower.x > SIZE-1:
-                follower.x = SIZE-1
-
-            if follower.y < 0:
-                follower.y = 0
-            elif follower.y > SIZE-1:
-                follower.y = SIZE-1
-
-
-
-        else:
-            self.x += self.speed * np.cos(np.deg2rad(self.heading*360/HEADING_MAX))
-            self.y += self.speed * np.sin(np.deg2rad(self.heading*360/HEADING_MAX))
-
-            # FIX: BOUNDARY CONDITIONS
-            if self.x < 0:
-                self.x = 0
-            elif self.x > SIZE-1:
-                self.x = SIZE-1
-
-            if self.y < 0:
-                self.y = 0
-            elif self.y > SIZE-1:
-                self.y = SIZE-1
-
+class monte_carlo:
     
         
+    class Plane:
+        def __init__(self, outer, x=None, y=None):
+            if x is None:
+                x = np.random.randint(0, outer.SIZE)
+            if y is None:
+                y = np.random.randint(0, outer.SIZE)
+            self.x = x
+            self.y = y
+            self.speed = 2
+            self.heading = np.random.randint(0, outer.HEADING_MAX)  # 0-HEADING_MAX-1
+            self.roll = 0
 
-    def action(self, choice=None, follower=False):
-        if choice == 0:
-            self.step(-15, follower=follower)
-        elif choice == 1:
-            self.step(follower=follower)
-        elif choice == 2:
-            self.step(15, follower=follower)
-        else:
-            self.step(np.random.choice([-15, 0, 15]), follower=follower)
+        def __str__(self):
+            return f"{self.x}, {self.y}"
 
-    def change_speed(self, speed):
-        if speed == 0:
-            if self.speed > 1:
-                self.speed -= 1
-        elif speed == 2:
-            if self.speed < 3:
-                self.speed += 1
+        def __sub__(self, other):
+            return (self.x - other.x, self.y - other.y)
 
-    def draw(self, color):
-        forward_point = (self.y * ZOOM + 30 * np.sin(np.deg2rad(self.heading * 360 / HEADING_MAX - 0)),
-                         self.x * ZOOM + 30 * np.cos(np.deg2rad(self.heading * 360 / HEADING_MAX - 0)))
-        right_point = (self.y * ZOOM + 10 * np.sin(np.deg2rad(self.heading * 360 / HEADING_MAX + 45)),
-                       self.x * ZOOM + 10 * np.cos(np.deg2rad(self.heading * 360 / HEADING_MAX + 45)))
-        left_point = (self.y * ZOOM + 10 * np.sin(np.deg2rad(self.heading * 360 / HEADING_MAX - 45)),
-                      self.x * ZOOM + 10 * np.cos(np.deg2rad(self.heading * 360 / HEADING_MAX - 45)))
-        ImageDraw.Draw(img).polygon([forward_point, right_point, (self.y * ZOOM, self.x * ZOOM), left_point],
-                                    fill=color, outline=color)
-        ImageDraw.Draw(img).ellipse([int(np.round(self.y, decimals=0) * ZOOM) - 3,
-                                    int(np.round(self.x, decimals=0) * ZOOM) - 3,
-                                    int(np.round(self.y, decimals=0) * ZOOM) + 3,
-                                    int(np.round(self.x, decimals=0) * ZOOM) + 3], fill=color, outline=None, width=0)
+        def step(self, outer, phi=False, follower=False):
+            if phi:
+                self.roll = max(min(self.roll + phi, 30), -30)
+                
+            if self.roll == 30:
+                self.heading = (self.heading+2) % outer.HEADING_MAX
+            if self.roll == 15:
+                self.heading = (self.heading+1) % outer.HEADING_MAX
+            elif self.roll == -15:
+                self.heading = (self.heading-1) % outer.HEADING_MAX
+            elif self.roll == -30:
+                self.heading = (self.heading-2) % outer.HEADING_MAX
 
-    def get_discrete_roll(self):
-        if self.roll == -30:
-            return 0
-        elif self.roll == -15:
-            return 1
-        elif self.roll == 0:
-            return 2
-        elif self.roll == 15:
-            return 3
-        elif self.roll == 30:
-            return 4
-        else:
-            return -1
+            if(follower):
+                follower.x -= self.speed * np.cos(np.deg2rad(self.heading*360/outer.HEADING_MAX))
+                follower.y -= self.speed * np.sin(np.deg2rad(self.heading*360/outer.HEADING_MAX))
+                
+                if follower.x < 0:
+                    follower.x = 0
+                elif follower.x > outer.SIZE-1:
+                    follower.x = outer.SIZE-1
 
-
-def get_tuple(xl, yl, xf, yf, phi):
-    z1 = math.cos(np.deg2rad(phi)) * (xf - xl) + math.sin(np.deg2rad(phi)) * (yf - yl)
-    z2 = -math.sin(np.deg2rad(phi)) * (xf - xl) + math.cos(np.deg2rad(phi)) * (yf - yl)
-    return (round(z1), round(z2))
+                if follower.y < 0:
+                    follower.y = 0
+                elif follower.y > outer.SIZE-1:
+                    follower.y = outer.SIZE-1
 
 
 
-
-# --- Initialize Q-table (action-value) and returns trackers for Monte Carlo ---
-if start_q_table is None:
-    q_table = {}
-    returns_sum = {}    # key: (state, action) -> cumulative return
-    returns_count = {}  # key: (state, action) -> visit count
-    temp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    print(f"Initializing Q-table at {temp}")
-    # Pre-populate q_table with zeros over the same ranges you used before
-    for x in range(-Q_TABLE_BASE_SIZE, Q_TABLE_BASE_SIZE):
-        for y in range(-Q_TABLE_BASE_SIZE, Q_TABLE_BASE_SIZE):
-            for hD in range(HEADING_MAX):
-                for rL in range(ROLL_MAX):
-                    for rF in range(ROLL_MAX):
-                        for rC in range(ROLL_MAX):
-                            Z = (x, y, hD, rL, rF, rC)
-                            q_table[Z] = np.zeros(CHOICES, dtype=float)
-else:
-    with open(start_q_table, "rb") as f:
-        q_table = pickle.load(f)
-    # create empty returns_sum/count dicts (they can be re-computed or initialized as empty)
-    returns_sum = {}
-    returns_count = {}
-
-episode_rewards = []
-episode_dif_rolls = []
-episode_dif_headings = []
-episode_distances = []
-episode_hits = []
-
-start_time = time.localtime()
-start_time_text = time.strftime("%Y-%m-%d %H:%M:%S", start_time)
-episode_time = []
-
-print(f"Starting training for {HM_EPISODES} episodes at {start_time_text}")
-
-for episode in range(HM_EPISODES):
-    player = Plane()
-    enemy = Plane(x=int(SIZE/2), y=int(SIZE/2))
-    hit = 0
-    if episode % SHOW_EVERY == 0:
-        print(f"on #{episode}, epsilon is {epsilon}")
-        print(f"{SHOW_EVERY} ep mean: {np.mean(episode_rewards[-SHOW_EVERY:]) if len(episode_rewards) >= SHOW_EVERY else None}")
-        show = True
-    else:
-        show = False
-
-    episode_reward = 0
-    episode_dif_roll = 0
-    episode_dif_heading = 0
-    episode_distance = 0
-
-    # store the episode trajectory for Monte Carlo update: list of (state, action, reward)
-    episode_memory = []
-
-    for i in range(iter_per_episode):
-        roll_command = np.random.randint(0, 3)
-
-        player_aprox_X = int(np.round(player.x, decimals=0))
-        player_aprox_Y = int(np.round(player.y, decimals=0))
-
-        enemy_aprox_X = int(np.round(enemy.x, decimals=0))
-        enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
-
-        Z1_Z2 = get_tuple(enemy.x, enemy.y, player.x, player.y, enemy.heading * 360 / HEADING_MAX)
-        Z3 = (enemy.heading - player.heading) % HEADING_MAX
-        Z4 = enemy.get_discrete_roll()
-        Z5 = player.get_discrete_roll()
-        Z6 = roll_command
-        obs = (Z1_Z2[0], Z1_Z2[1], Z3, Z4, Z5, Z6)
-
-        # ensure state exists in q_table (safe fallback)
-        if obs not in q_table:
-            q_table[obs] = np.zeros(CHOICES, dtype=float)
-
-        # Select action using epsilon-soft policy derived from q_table (epsilon-greedy)
-        if np.random.random() > epsilon:
-            action = int(np.argmax(q_table[obs]))
-        else:
-            # respect roll constraints like in original
-            if player.roll == 30:
-                action = np.random.randint(0, CHOICES - 1)
-            elif player.roll == -30:
-                action = np.random.randint(1, CHOICES)
             else:
-                action = np.random.randint(0, CHOICES)
+                self.x += self.speed * np.cos(np.deg2rad(self.heading*360/outer.HEADING_MAX))
+                self.y += self.speed * np.sin(np.deg2rad(self.heading*360/outer.HEADING_MAX))
 
-        # Execute actions
-        player.action(action)
-        enemy.action(roll_command, follower=player)
+                # FIX: BOUNDARY CONDITIONS
+                if self.x < 0:
+                    self.x = 0
+                elif self.x > outer.SIZE-1:
+                    self.x = outer.SIZE-1
 
-        distance = math.dist([player_aprox_X, player_aprox_Y], [enemy_aprox_X, enemy_aprox_Y])
+                if self.y < 0:
+                    self.y = 0
+                elif self.y > outer.SIZE-1:
+                    self.y = outer.SIZE-1
 
-        # Compute reward (same as original)
-        beta = 0.5
-        b1 = SAFE_DISTANCE_LOW
-        b2 = SAFE_DISTANCE_HIGH
-        p = math.sqrt(Z1_Z2[0] ** 2 + Z1_Z2[1] ** 2)
-        d_val = max(b1 - p, 0, p - b2)
-        g = max(d_val, (b1 * Z3) / (np.pi * (1 + beta * d_val)))
+        
+            
 
-        if player_aprox_X == enemy_aprox_X and player_aprox_Y == enemy_aprox_Y:
-            reward = - (g + ENEMY_PENALTY)
-            hit += 1
-        elif SAFE_DISTANCE_LOW > distance:
-            reward = - (g + CLOSE_ENEMY_PENALTY)
-        elif SAFE_DISTANCE_LOW <= distance <= SAFE_DISTANCE_HIGH:
-            reward = - (g + SAFE_PLACE_REWARD)
-        else:
-            reward = - (g + FAR_PENALTY)
-
-        # append experience to episode memory
-        episode_memory.append((obs, action, reward))
-
-        # Visualization (unchanged)
-        show = show and SHOW_ANY
-        if show:
-            player_aprox_X = int(np.round(player.x, decimals=0))
-            player_aprox_Y = int(np.round(player.y, decimals=0))
-            enemy_aprox_X = int(np.round(enemy.x, decimals=0))
-            enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
-
-            env = np.zeros((SIZE, SIZE, 3), dtype=np.uint8)
-            img = Image.fromarray(env, 'RGB')
-            img = img.resize((SHOW_SIZE, SHOW_SIZE + 100), resample=Image.NEAREST)
-
-            ImageDraw.Draw(img).ellipse([enemy_aprox_Y * ZOOM - (SAFE_DISTANCE_HIGH + SAFE_DISTANCE_LOW) / 2 * ZOOM,
-                                        enemy_aprox_X * ZOOM - (SAFE_DISTANCE_HIGH + SAFE_DISTANCE_LOW) / 2 * ZOOM,
-                                        enemy_aprox_Y * ZOOM + (SAFE_DISTANCE_HIGH + SAFE_DISTANCE_LOW) / 2 * ZOOM,
-                                        enemy_aprox_X * ZOOM + (SAFE_DISTANCE_HIGH + SAFE_DISTANCE_LOW) / 2 * ZOOM],
-                                       outline=None)
-            enemy.draw(d[ENEMY_N])
-            player.draw(d[PLAYER_N])
-
-            ImageDraw.Draw(img).rectangle([(0, SHOW_SIZE), (SHOW_SIZE, SHOW_SIZE + 100)], fill=(255, 255, 255))
-            ImageDraw.Draw(img).text((10, SHOW_SIZE + 10), f"Episode: {episode} - Step: {i}", fill=(0, 0, 0))
-            ImageDraw.Draw(img).text((10, SHOW_SIZE + 30), f"Reward: {reward}", fill=(0, 0, 0))
-            ImageDraw.Draw(img).text((10, SHOW_SIZE + 50),
-                                     f"Player - X: {player.x:.2f}, Y: {player.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}",
-                                     fill=(d[PLAYER_N]))
-            ImageDraw.Draw(img).text((10, SHOW_SIZE + 70),
-                                     f"Enemy - X: {enemy.x:.2f}, Y: {enemy.y:.2f}, H: {enemy.heading}, R: {enemy.roll} , S: {enemy.speed}",
-                                     fill=(d[ENEMY_N]))
-
-            cv2.imshow("image", np.array(img))
-            if reward == SAFE_PLACE_REWARD:
-                if cv2.waitKey(1000) & 0xFF == ord('q'):
-                    break
+        def action(self, outer1, choice=None, follower=False):
+            if choice == 0:
+                self.step(phi=-15, follower=follower, outer=outer1)
+            elif choice == 1:
+                self.step(follower=follower, outer=outer1)
+            elif choice == 2:
+                self.step(phi=15, follower=follower, outer=outer1)
             else:
-                if cv2.waitKey(1000) & 0xFF == ord('q'):
+                self.step(phi=np.random.choice([-15, 0, 15]), follower=follower, outer=outer1)
+
+        def change_speed(self, speed):
+            if speed == 0:
+                if self.speed > 1:
+                    self.speed -= 1
+            elif speed == 2:
+                if self.speed < 3:
+                    self.speed += 1
+
+        def draw(self, outer, color):
+            forward_point = (self.y * outer.ZOOM + 30 * np.sin(np.deg2rad(self.heading * 360 / outer.HEADING_MAX - 0)),
+                            self.x * outer.ZOOM + 30 * np.cos(np.deg2rad(self.heading * 360 / outer.HEADING_MAX - 0)))
+            right_point = (self.y * outer.ZOOM + 10 * np.sin(np.deg2rad(self.heading * 360 / outer.HEADING_MAX + 45)),
+                        self.x * outer.ZOOM + 10 * np.cos(np.deg2rad(self.heading * 360 / outer.HEADING_MAX + 45)))
+            left_point = (self.y * outer.ZOOM + 10 * np.sin(np.deg2rad(self.heading * 360 / outer.HEADING_MAX - 45)),
+                        self.x * outer.ZOOM + 10 * np.cos(np.deg2rad(self.heading * 360 / outer.HEADING_MAX - 45)))
+            ImageDraw.Draw(outer.img).polygon([forward_point, right_point, (self.y * outer.ZOOM, self.x * outer.ZOOM), left_point],
+                                        fill=color, outline=color)
+            ImageDraw.Draw(outer.img).ellipse([int(np.round(self.y, decimals=0) * outer.ZOOM) - 3,
+                                        int(np.round(self.x, decimals=0) * outer.ZOOM) - 3,
+                                        int(np.round(self.y, decimals=0) * outer.ZOOM) + 3,
+                                        int(np.round(self.x, decimals=0) * outer.ZOOM) + 3], fill=color, outline=None, width=0)
+
+        def get_discrete_roll(self):
+            if self.roll == -30:
+                return 0
+            elif self.roll == -15:
+                return 1
+            elif self.roll == 0:
+                return 2
+            elif self.roll == 15:
+                return 3
+            elif self.roll == 30:
+                return 4
+            else:
+                return -1
+
+
+
+    def __init__(self):
+        style.use("ggplot")
+
+        # DONE: Mais resultados, YAW, distância média durante os episódios
+        # TODO: Experiment with episode length, epsilon decay, or returns averaging window
+
+        self.SIZE = 40
+        self.Q_TABLE_BASE_SIZE = 29  # 28 for 20 and 61 for 61
+        self.SHOW_SIZE = 400
+        self.HM_EPISODES = 2000000
+        self.MOVE_PENALTY = 1
+        self.ENEMY_PENALTY = 0 #10  # Bater no lider
+        self.CLOSE_ENEMY_PENALTY = 0# 5  # Degrau perto do lider
+        self.CLOSE_PENALTY_LINEAR = 100  # Slope perto do lider
+        self.FAR_PENALTY = 0 #5  # Degrau longe do lider
+        self.FAR_PENALTY_LINEAR = 100  # Slope longe do lider
+        self.SAFE_PLACE_REWARD = 0  # Recompensa de local seguro
+
+        self.iter_per_episode = 200
+
+        self.HEADING_MAX = 24
+        self.ROLL_MAX = 5
+        self.CHOICES = 3
+
+        self.epsilon = 0.9
+        self.EPS_DECAY = 0.9999
+        self.SHOW_EVERY = 1000
+        self.SHOW_ANY = False
+
+        self.SAFE_DISTANCE_LOW = 4 #6 #4
+        self.SAFE_DISTANCE_HIGH = 6 #9 #7
+
+        self.start_q_table = None  # or filename
+
+        self.DISCOUNT = 0.3  # gamma for returns
+
+        self.PLAYER_N = 1
+        self.FOOD_N = 2
+        self.ENEMY_N = 3
+
+        self.d = {1: (255, 175, 0),
+            2: (0, 255, 0),
+            3: (0, 0, 255)
+            }
+
+        self.ZOOM = int(self.SHOW_SIZE / self.SIZE)
+
+    def get_tuple(self, xl, yl, xf, yf, phi):
+        z1 = math.cos(np.deg2rad(phi)) * (xf - xl) + math.sin(np.deg2rad(phi)) * (yf - yl)
+        z2 = -math.sin(np.deg2rad(phi)) * (xf - xl) + math.cos(np.deg2rad(phi)) * (yf - yl)
+        return (round(z1), round(z2))
+
+
+
+    def train(self):
+        
+        # --- Initialize Q-table (action-value) and returns trackers for Monte Carlo ---
+        if self.start_q_table is None:
+            q_table = {}
+            returns_sum = {}    # key: (state, action) -> cumulative return
+            returns_count = {}  # key: (state, action) -> visit count
+            temp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            print(f"MC - Initializing Q-table at {temp}")
+            # Pre-populate q_table with zeros over the same ranges you used before
+            for x in range(-self.Q_TABLE_BASE_SIZE, self.Q_TABLE_BASE_SIZE):
+                for y in range(-self.Q_TABLE_BASE_SIZE, self.Q_TABLE_BASE_SIZE):
+                    for hD in range(self.HEADING_MAX):
+                        for rL in range(self.ROLL_MAX):
+                            for rF in range(self.ROLL_MAX):
+                                for rC in range(self.ROLL_MAX):
+                                    Z = (x, y, hD, rL, rF, rC)
+                                    q_table[Z] = np.zeros(self.CHOICES, dtype=float)
+        else:
+            with open(self.start_q_table, "rb") as f:
+                q_table = pickle.load(f)
+            # create empty returns_sum/count dicts (they can be re-computed or initialized as empty)
+            returns_sum = {}
+            returns_count = {}
+
+        episode_rewards = []
+        episode_dif_rolls = []
+        episode_dif_headings = []
+        episode_distances = []
+        episode_hits = []
+
+        start_time = time.localtime()
+        start_time_text = time.strftime("%Y-%m-%d %H:%M:%S", start_time)
+        episode_time = []
+
+        print(f"MC - Starting training for {self.HM_EPISODES} episodes at {start_time_text}")
+
+        for episode in range(self.HM_EPISODES):
+            player = self.Plane(outer=self)
+            enemy = self.Plane(outer=self, x=int(self.SIZE/2), y=int(self.SIZE/2))
+            hit = 0
+            if episode % self.SHOW_EVERY == 0:
+                print(f"MC - on #{episode}, epsilon is {self.epsilon}")
+                print(f"MC - {self.SHOW_EVERY} ep mean: {np.mean(episode_rewards[-self.SHOW_EVERY:]) if len(episode_rewards) >= self.SHOW_EVERY else None}")
+                show = True
+            else:
+                show = False
+
+            episode_reward = 0
+            episode_dif_roll = 0
+            episode_dif_heading = 0
+            episode_distance = 0
+
+            # store the episode trajectory for Monte Carlo update: list of (state, action, reward)
+            episode_memory = []
+
+            for i in range(self.iter_per_episode):
+                roll_command = np.random.randint(0, 3)
+
+                player_aprox_X = int(np.round(player.x, decimals=0))
+                player_aprox_Y = int(np.round(player.y, decimals=0))
+
+                enemy_aprox_X = int(np.round(enemy.x, decimals=0))
+                enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
+
+                Z1_Z2 = self.get_tuple(enemy.x, enemy.y, player.x, player.y, enemy.heading * 360 / self.HEADING_MAX)
+                Z3 = (enemy.heading - player.heading) % self.HEADING_MAX
+                Z4 = enemy.get_discrete_roll()
+                Z5 = player.get_discrete_roll()
+                Z6 = roll_command
+                obs = (Z1_Z2[0], Z1_Z2[1], Z3, Z4, Z5, Z6)
+
+                # ensure state exists in q_table (safe fallback)
+                if obs not in q_table:
+                    q_table[obs] = np.zeros(self.CHOICES, dtype=float)
+
+                # Select action using epsilon-soft policy derived from q_table (epsilon-greedy)
+                if np.random.random() > self.epsilon:
+                    action = int(np.argmax(q_table[obs]))
+                else:
+                    # respect roll constraints like in original
+                    if player.roll == 30:
+                        action = np.random.randint(0, self.CHOICES - 1)
+                    elif player.roll == -30:
+                        action = np.random.randint(1, self.CHOICES)
+                    else:
+                        action = np.random.randint(0, self.CHOICES)
+
+                # Execute actions
+                player.action(choice=action, outer1=self)
+                enemy.action(choice=roll_command, follower=player, outer1=self)
+
+                distance = math.dist([player_aprox_X, player_aprox_Y], [enemy_aprox_X, enemy_aprox_Y])
+
+                # Compute reward (same as original)
+                beta = 0.5
+                b1 = self.SAFE_DISTANCE_LOW
+                b2 = self.SAFE_DISTANCE_HIGH
+                p = math.sqrt(Z1_Z2[0] ** 2 + Z1_Z2[1] ** 2)
+                d_val = max(b1 - p, 0, p - b2)
+                g = max(d_val, (b1 * Z3) / (np.pi * (1 + beta * d_val)))
+
+                if player_aprox_X == enemy_aprox_X and player_aprox_Y == enemy_aprox_Y:
+                    reward = - (g + self.ENEMY_PENALTY)
+                    hit += 1
+                elif self.SAFE_DISTANCE_LOW > distance:
+                    reward = - (g + self.CLOSE_ENEMY_PENALTY)
+                elif self.SAFE_DISTANCE_LOW <= distance <= self.SAFE_DISTANCE_HIGH:
+                    reward = - (g + self.SAFE_PLACE_REWARD)
+                else:
+                    reward = - (g + self.FAR_PENALTY)
+
+                # append experience to episode memory
+                episode_memory.append((obs, action, reward))
+
+                # Visualization (unchanged)
+                show = show and self.SHOW_ANY
+                if show:
+                    player_aprox_X = int(np.round(player.x, decimals=0))
+                    player_aprox_Y = int(np.round(player.y, decimals=0))
+                    enemy_aprox_X = int(np.round(enemy.x, decimals=0))
+                    enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
+
+                    env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)
+                    img = Image.fromarray(env, 'RGB')
+                    img = img.resize((self.SHOW_SIZE, self.SHOW_SIZE + 100), resample=Image.NEAREST)
+
+                    ImageDraw.Draw(img).ellipse([enemy_aprox_Y * self.ZOOM - (self.SAFE_DISTANCE_HIGH + self.SAFE_DISTANCE_LOW) / 2 * self.ZOOM,
+                                                enemy_aprox_X * self.ZOOM - (self.SAFE_DISTANCE_HIGH + self.SAFE_DISTANCE_LOW) / 2 * self.ZOOM,
+                                                enemy_aprox_Y * self.ZOOM + (self.SAFE_DISTANCE_HIGH + self.SAFE_DISTANCE_LOW) / 2 * self.ZOOM,
+                                                enemy_aprox_X * self.ZOOM + (self.SAFE_DISTANCE_HIGH + self.SAFE_DISTANCE_LOW) / 2 * self.ZOOM],
+                                            outline=None)
+                    enemy.draw(self.d[self.ENEMY_N])
+                    player.draw(self.d[self.PLAYER_N])
+
+                    ImageDraw.Draw(img).rectangle([(0, self.SHOW_SIZE), (self.SHOW_SIZE, self.SHOW_SIZE + 100)], fill=(255, 255, 255))
+                    ImageDraw.Draw(img).text((10, self.SHOW_SIZE + 10), f"Episode: {episode} - Step: {i}", fill=(0, 0, 0))
+                    ImageDraw.Draw(img).text((10, self.SHOW_SIZE + 30), f"Reward: {reward}", fill=(0, 0, 0))
+                    ImageDraw.Draw(img).text((10, self.SHOW_SIZE + 50),
+                                            f"Player - X: {player.x:.2f}, Y: {player.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}",
+                                            fill=(self.d[self.PLAYER_N]))
+                    ImageDraw.Draw(img).text((10, self.SHOW_SIZE + 70),
+                                            f"Enemy - X: {enemy.x:.2f}, Y: {enemy.y:.2f}, H: {enemy.heading}, R: {enemy.roll} , S: {enemy.speed}",
+                                            fill=(self.d[self.ENEMY_N]))
+
+                    cv2.imshow("image", np.array(img))
+                    if reward == self.SAFE_PLACE_REWARD:
+                        if cv2.waitKey(1000) & 0xFF == ord('q'):
+                            break
+                    else:
+                        if cv2.waitKey(1000) & 0xFF == ord('q'):
+                            break
+
+                episode_reward += reward
+                episode_dif_roll += abs(player.get_discrete_roll() - enemy.get_discrete_roll())
+                episode_dif_heading += Z3
+                episode_distance += distance
+
+                if player_aprox_X == enemy_aprox_X and player_aprox_Y == enemy_aprox_Y: # reward == -ENEMY_PENALTY
+                    # episode ends early; Monte Carlo handles episodic returns fine
                     break
 
-        episode_reward += reward
-        episode_dif_roll += abs(player.get_discrete_roll() - enemy.get_discrete_roll())
-        episode_dif_heading += Z3
-        episode_distance += distance
+            # --- Monte Carlo first-visit update (after episode finishes) ---
+            T = len(episode_memory)
+            # compute returns for each time-step t
+            for t in range(T):
+                obs_t, action_t, _ = episode_memory[t]
+                # first-visit check
+                first_visit = True
+                for earlier in range(t):
+                    if episode_memory[earlier][0] == obs_t and episode_memory[earlier][1] == action_t:
+                        first_visit = False
+                        break
+                if not first_visit:
+                    continue
 
-        if player_aprox_X == enemy_aprox_X and player_aprox_Y == enemy_aprox_Y: # reward == -ENEMY_PENALTY
-            # episode ends early; Monte Carlo handles episodic returns fine
-            break
+                # compute discounted return G_t
+                G = 0.0
+                power = 0
+                for k in range(t, T):
+                    reward_k = episode_memory[k][2]
+                    G += (self.DISCOUNT ** power) * reward_k
+                    power += 1
 
-    # --- Monte Carlo first-visit update (after episode finishes) ---
-    T = len(episode_memory)
-    # compute returns for each time-step t
-    for t in range(T):
-        obs_t, action_t, _ = episode_memory[t]
-        # first-visit check
-        first_visit = True
-        for earlier in range(t):
-            if episode_memory[earlier][0] == obs_t and episode_memory[earlier][1] == action_t:
-                first_visit = False
-                break
-        if not first_visit:
-            continue
+                # update returns trackers
+                key = (obs_t, action_t)
+                if key in returns_sum:
+                    returns_sum[key] += G
+                    returns_count[key] += 1
+                else:
+                    returns_sum[key] = G
+                    returns_count[key] = 1
 
-        # compute discounted return G_t
-        G = 0.0
-        power = 0
-        for k in range(t, T):
-            reward_k = episode_memory[k][2]
-            G += (DISCOUNT ** power) * reward_k
-            power += 1
+                # update q-table as average return
+                q_table[obs_t][action_t] = returns_sum[key] / returns_count[key]
 
-        # update returns trackers
-        key = (obs_t, action_t)
-        if key in returns_sum:
-            returns_sum[key] += G
-            returns_count[key] += 1
-        else:
-            returns_sum[key] = G
-            returns_count[key] = 1
+            # bookkeeping & metrics
+            episode_rewards.append(episode_reward / max(1, self.iter_per_episode))
+            episode_dif_rolls.append(episode_dif_roll / max(1, self.iter_per_episode))
+            episode_dif_headings.append(episode_dif_heading / max(1, self.iter_per_episode))
+            episode_distances.append(episode_distance / max(1, self.iter_per_episode))
+            episode_time.append(time.mktime(time.localtime())-time.mktime(start_time))
+            episode_hits.append(hit)
 
-        # update q-table as average return
-        q_table[obs_t][action_t] = returns_sum[key] / returns_count[key]
-
-    # bookkeeping & metrics
-    episode_rewards.append(episode_reward / max(1, iter_per_episode))
-    episode_dif_rolls.append(episode_dif_roll / max(1, iter_per_episode))
-    episode_dif_headings.append(episode_dif_heading / max(1, iter_per_episode))
-    episode_distances.append(episode_distance / max(1, iter_per_episode))
-    episode_time.append(time.mktime(time.localtime())-time.mktime(start_time))
-    episode_hits.append(hit)
-
-    # decay epsilon
-    epsilon *= EPS_DECAY
+            # decay epsilon
+            self.epsilon *= self.EPS_DECAY
 
 
 
-temp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-print(f"Ended training for {HM_EPISODES} episodes at {temp}")
+        temp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        print(f"MC - Ended training for {self.HM_EPISODES} episodes at {temp}")
 
 
-# Plotting (same as original)
-figure, axis = plt.subplots(2, 2)
+        # Plotting (same as original)
+        figure, axis = plt.subplots(2, 2)
 
-moving_avg = np.convolve(episode_rewards, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode="valid")
-axis[0, 0].plot([i for i in range(len(moving_avg))], moving_avg, color="blue", label="Reward")
-axis[0, 0].set_title("Reward")
+        moving_avg = np.convolve(episode_rewards, np.ones((self.SHOW_EVERY,)) / self.SHOW_EVERY, mode="valid")
+        axis[0, 0].plot([i for i in range(len(moving_avg))], moving_avg, color="blue", label="Reward")
+        axis[0, 0].set_title("Reward")
 
-moving_avg = np.convolve(episode_dif_rolls, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode="valid")
-axis[0, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="red", label="Roll")
-axis[0, 1].set_title("Roll")
+        moving_avg = np.convolve(episode_dif_rolls, np.ones((self.SHOW_EVERY,)) / self.SHOW_EVERY, mode="valid")
+        axis[0, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="red", label="Roll")
+        axis[0, 1].set_title("Roll")
 
-moving_avg = np.convolve(episode_dif_headings, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode="valid")
-axis[1, 0].plot([i for i in range(len(moving_avg))], moving_avg, color="green", label="Heading")
-axis[1, 0].set_title("Heading")
+        moving_avg = np.convolve(episode_dif_headings, np.ones((self.SHOW_EVERY,)) / self.SHOW_EVERY, mode="valid")
+        axis[1, 0].plot([i for i in range(len(moving_avg))], moving_avg, color="green", label="Heading")
+        axis[1, 0].set_title("Heading")
 
-moving_avg = np.convolve(episode_distances, np.ones((SHOW_EVERY,)) / SHOW_EVERY, mode="valid")
-axis[1, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Distance")
-axis[1, 1].set_title("Distance")
+        moving_avg = np.convolve(episode_distances, np.ones((self.SHOW_EVERY,)) / self.SHOW_EVERY, mode="valid")
+        axis[1, 1].plot([i for i in range(len(moving_avg))], moving_avg, color="orange", label="Distance")
+        axis[1, 1].set_title("Distance")
 
-plt.show()
+        plt.show()
 
-results = {'Reward': episode_rewards, 'Roll': episode_dif_rolls, 'Heading': episode_dif_headings, 'Distance': episode_distances, 'Time': episode_time, 'Hits': episode_hits}
-df = pd.DataFrame(results)
-df.to_csv(r'.\Tests\Monte Carlo\monte_carlo_results_int.csv')
+        results = {'Reward': episode_rewards, 'Roll': episode_dif_rolls, 'Heading': episode_dif_headings, 'Distance': episode_distances, 'Time': episode_time, 'Hits': episode_hits}
+        df = pd.DataFrame(results)
+        df.to_csv(r'.\Tests\Monte Carlo\monte_carlo_results_int.csv')
 
-try:
-    with open(f"mc-planes-{int(time.time())}.pickle", "wb") as f:
-        pickle.dump(q_table, f)
-except Exception as e:
-    with open(f"mc-planes-redundant-{int(time.time())}.pickle", "wb") as f:
-        pickle.dump(q_table, f)
+        try:
+            with open(f"mc-planes-{int(time.time())}.pickle", "wb") as f:
+                pickle.dump(q_table, f)
+        except Exception as e:
+            with open(f"mc-planes-redundant-{int(time.time())}.pickle", "wb") as f:
+                pickle.dump(q_table, f)
 
-print("Finished. MC-table saved.")
-
+        print("MC - Finished. MC-table saved.")
