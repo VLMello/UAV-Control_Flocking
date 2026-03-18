@@ -215,15 +215,6 @@ def get_tuple(xl, yl, xf, yf, phi):
     z2 = -math.sin(np.deg2rad(phi))*(xf-xl) + math.cos(np.deg2rad(phi))*(yf-yl)
     return (round(z1), round(z2))
 
-with open(start_q_table, "rb") as f:
-    q_table = pickle.load(f)
-
-with open(start_mc_table, "rb") as f:
-    mc_table = pickle.load(f)
-
-with open(start_sarsa_table, "rb") as f:
-    sarsa_table = pickle.load(f)
-
 with open(commands_sequence, "rb") as f:
     com_seq = pickle.load(f)
 
@@ -273,55 +264,21 @@ for episode in range(HM_EPISODES):
         enemy_aprox_X = int(np.round(enemy.x, decimals=0))
         enemy_aprox_Y = int(np.round(enemy.y, decimals=0))
 
-        Z1_Z2 = get_tuple(enemy.x, enemy.y, player.x, player.y, enemy.heading*360/HEADING_MAX)
-        Z1 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[0]), Q_TABLE_BASE_SIZE-1)
-        Z2 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[1]), Q_TABLE_BASE_SIZE-1)
-        Z3 = (enemy.heading-player.heading)%HEADING_MAX
-        Z4 = enemy.get_discrete_roll()
-        Z5 = player.get_discrete_roll()
-        Z6 = roll_command
-        obs = (Z1, Z2, Z3, Z4, Z5, Z6)
-        #obsFL = player.get_obs(enemy, roll_command)
-        #obsFO = player.get_obs(player2, roll_command)
-        
-
-        #obs = ((player_aprox_X-enemy_aprox_X, player_aprox_Y-enemy_aprox_Y), (player.heading-enemy.heading)%8, (player.get_discrete_roll()-enemy.get_discrete_roll()), (player.speed-enemy.speed+1))
-        #print(obs)
         # GET THE ACTION
         #action = np.argmax([np.argmax(q_table[obsFL],np.argmax(q_table[obsFO]))])
-        action = np.argmax(q_table[obs])
+        action = 0
         #print("Q obs:", obs, "result:", mc_table[obs], "action:", action)
 
         # Take the action!
         player.action(action)
-
-        Z1_Z2 = get_tuple(enemy.x, enemy.y, player2.x, player2.y, enemy.heading*360/HEADING_MAX)
-        Z1 = min(max(-M_CARLO_BASE_SIZE, Z1_Z2[0]), M_CARLO_BASE_SIZE-1)
-        Z2 = min(max(-M_CARLO_BASE_SIZE, Z1_Z2[1]), M_CARLO_BASE_SIZE-1)
-        Z3 = (enemy.heading-player2.heading)%HEADING_MAX
-        Z4 = enemy.get_discrete_roll()
-        Z5 = player2.get_discrete_roll()
-        Z6 = roll_command
-        obs = (Z1, Z2, Z3, Z4, Z5, Z6)
-        #obsOL = player2.get_obs(enemy, roll_command)
-        #obsOF = player2.get_obs(player, roll_command)
-
         # GET THE ACTION
         #action = np.argmax([np.argmax(q_table[obsOL],np.argmax(q_table[obsOF]))])
-        action = np.argmax(mc_table[obs])
+        action = 0
         #print("MC obs:", obs, "result:", mc_table[obs], "action:", action)
         player2.action(action)
         #player.change_speed(action_speed)
 
-        Z1_Z2 = get_tuple(enemy.x, enemy.y, player3.x, player3.y, enemy.heading*360/HEADING_MAX)
-        Z1 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[0]), Q_TABLE_BASE_SIZE-1)
-        Z2 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[1]), Q_TABLE_BASE_SIZE-1)
-        Z3 = (enemy.heading-player3.heading)%HEADING_MAX
-        Z4 = enemy.get_discrete_roll()
-        Z5 = player3.get_discrete_roll()
-        Z6 = roll_command
-        obs = (Z1, Z2, Z3, Z4, Z5, Z6)
-        action = np.argmax(sarsa_table[obs])
+        action = 0
         player3.action(action)
 
         # ======================
@@ -397,7 +354,7 @@ for episode in range(HM_EPISODES):
 
 
         ImageDraw.Draw(img).text((10, SHOW_SIZE+10), f"Episode: {episode} - Step: {i}", fill=(0, 0, 0))
-        ImageDraw.Draw(img).text((10, SHOW_SIZE+30), f"Reward: {reward} - Q: {q_table[obs]}", fill=(0, 0, 0))
+        ImageDraw.Draw(img).text((10, SHOW_SIZE+30), f"Reward: {reward} - Q: {0}", fill=(0, 0, 0))
         ImageDraw.Draw(img).text((10, SHOW_SIZE+50), f"Leader - X: {enemy.x:.2f}, Y: {enemy.y:.2f}, H: {enemy.heading}, R: {enemy.roll} , S: {enemy.speed}", fill=(colors[ENEMY_N]))
         ImageDraw.Draw(img).text((10, SHOW_SIZE+70), f"FollowerQL - X: {player.x:.2f}, Y: {player.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}", fill=(colors[PLAYER_N]))
         ImageDraw.Draw(img).text((10, SHOW_SIZE+90), f"FollowerMC - X: {player2.x:.2f}, Y: {player2.y:.2f}, H: {player.heading}, R: {player.roll} , S: {player.speed}", fill=(colors[FOOD_N]))

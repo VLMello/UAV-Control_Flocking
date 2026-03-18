@@ -1,5 +1,6 @@
-# runnerDrawTrials.py (DQN-enabled)
-# Adapted from original runnerDrawTrials.py. Original: :contentReference[oaicite:1]{index=1}
+# runnerDrawTrials_multiDQN.py
+# Adapted from your runnerDrawTrials.py to run N DQN agents in parallel and compare.
+# Saves per-DQN traces and plots individual + mean DQN performance.
 
 import os
 import numpy as np
@@ -16,11 +17,12 @@ style.use("ggplot")
 # -------------------------
 # Environment params
 # -------------------------
-SIZE = 40
+SIZE = 400
 Q_TABLE_BASE_SIZE = 29 # 28 for 20 and 61 for 61
 M_CARLO_BASE_SIZE = 56 # 28 for 20 and 61 for 61
 SHOW_SIZE = 800
-HM_EPISODES = 10000
+HM_EPISODES = 2000           # reduce for quicker runs; increase for thorough stats
+STEPS_PER_EPISODE = 300
 MOVE_PENALTY = 1
 ENEMY_PENALTY = 500
 CLOSE_ENEMY_PENALTY = 0
@@ -35,7 +37,7 @@ CHOICES = 3
 
 epsilon = 0.0
 EPS_DECAY = 0.99999
-SHOW_EVERY = 1
+SHOW_EVERY = 100
 SHOW_ROUNDED_POSITION = False
 
 SAFE_DISTANCE_LOW = 5
@@ -55,19 +57,44 @@ SARSA_N = 2
 ENEMY_N = 3
 MC_N = 3
 
-# colors: keep original mapping and add DQN color
-colors = {
-    1: (30, 30, 255),
-    2: (30, 255, 30),
-    3: (255, 255, 255),
-    4: (255, 30, 30),
-    5: (155, 30, 155)  # DQN (purple-ish)
-}
-
 ZOOM = int(SHOW_SIZE/SIZE)
 
 # -------------------------
-# DQN imports & model
+# Multi-DQN parameters
+# -------------------------
+# Number of DQN agents to run in parallel
+N_DQNS = 2
+
+# Option A: list of model files for each DQN (provide exactly N_DQNS or fewer; missing entries will be handled)
+DQN_MODEL_FILES = [
+    "dqn_planes_1771871222.pth", # 0 - With leader command
+    "dqn_planes_1771885804.pth"  # 1 - No leader command
+    # Example: "dqn_planes_1768713482.pth",
+    # Add your model paths here. If empty, script will try to duplicate DQN_MODEL_FILE below.
+]
+
+# Option B: single model file to duplicate N times (fallback when DQN_MODEL_FILES is empty)
+DQN_MODEL_FILE = "dqn_planes_1768713482.pth"
+
+# Color generation for many DQNs
+cmap = plt.get_cmap("viridis")
+dqn_colors = []
+for i in range(N_DQNS):
+    c = cmap(i / max(1, N_DQNS-1))
+    # convert to 0-255 color tuple
+    dqn_colors.append(tuple(int(255 * v) for v in c[:3]))
+
+# base colors (keep earlier mapping)
+colors = {
+    1: (30, 30, 255),   # Q
+    2: (30, 255, 30),   # SARSA
+    3: (255, 255, 255), # enemy/background
+    4: (255, 30, 30),   # MC
+    # DQNs will use dqn_colors list for plotting / drawing
+}
+
+# -------------------------
+# Torch & DQN model
 # -------------------------
 try:
     import torch
@@ -75,13 +102,38 @@ try:
     TORCH_AVAILABLE = True
 except Exception:
     TORCH_AVAILABLE = False
-    # We'll raise if model is needed and torch not present.
-
-DQN_MODEL_FILE = "dqn_planes_1771885804.pth"  # trained archive you mentioned
 
 if not TORCH_AVAILABLE:
-    print("Warning: PyTorch not available. DQN support will fail if model file is required.")
+    print("Warning: PyTorch not available. DQN agents will fallback to random policy.")
 
+# DQN network architecture (should match training)
+class DQN(nn.Module):
+    def __init__(self, in_dim=6, out_dim=CHOICES, hidden=128):
+        super(DQN, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, out_dim)
+        )
+    def forward(self, x):
+        return self.net(x)
+
+def obs_to_state_dqn(obs):
+    Z1, Z2, Z3, Z4, Z5, Z6 = obs
+    return np.array([
+        Z1 / Q_TABLE_BASE_SIZE,
+        Z2 / Q_TABLE_BASE_SIZE,
+        Z3 / HEADING_MAX,
+        Z4 / (ROLL_MAX - 1),
+        Z5 / (ROLL_MAX - 1),
+        Z6 / (CHOICES - 1)
+    ], dtype=np.float32)
+
+# -------------------------
+# Environment classes / helpers
+# -------------------------
 class Plane:
     def __init__(self, x=None, y=None):
         if x is None:
@@ -180,10 +232,6 @@ class Plane:
         obs = (Z1, Z2, Z3, Z4, Z5, Z6)
         return obs
 
-def dist(blobA, blobB):
-    vector = blobA - blobB
-    return math.sqrt(vector.x**2 + vector.y**2)
-
 def get_tuple(xl, yl, xf, yf, phi):
     z1 = math.cos(np.deg2rad(phi))*(xf-xl) + math.sin(np.deg2rad(phi))*(yf-yl)
     z2 = -math.sin(np.deg2rad(phi))*(xf-xl) + math.cos(np.deg2rad(phi))*(yf-yl)
@@ -205,86 +253,81 @@ with open(commands_sequence, "rb") as f:
     com_seq = pickle.load(f)
 
 # -------------------------
-# Prepare DQN model (if available)
+# Load/prepare DQN models
 # -------------------------
-dqn_model = None
-if TORCH_AVAILABLE:
-    class DQN(nn.Module):
-        def __init__(self, in_dim=6, out_dim=CHOICES, hidden=128):
-            super(DQN, self).__init__()
-            self.net = nn.Sequential(
-                nn.Linear(in_dim, hidden),
-                nn.ReLU(),
-                nn.Linear(hidden, hidden),
-                nn.ReLU(),
-                nn.Linear(hidden, out_dim)
-            )
-        def forward(self, x):
-            return self.net(x)
+dqn_models = []
+dqn_model_loaded_flags = []  # True if model present for each DQN
+device = torch.device("cuda" if TORCH_AVAILABLE and torch.cuda.is_available() else "cpu") if TORCH_AVAILABLE else None
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if os.path.exists(DQN_MODEL_FILE):
-        dqn_model = DQN().to(device)
-        dqn_model.load_state_dict(torch.load(DQN_MODEL_FILE, map_location=device))
-        dqn_model.eval()
-        print(f"Loaded DQN model from {DQN_MODEL_FILE} on {device}")
+# Build list of files to attempt loading
+files_to_try = []
+if len(DQN_MODEL_FILES) > 0:
+    files_to_try = DQN_MODEL_FILES[:N_DQNS]
+# If fewer files provided than N_DQNS, and a single duplicate file is available, duplicate it
+if len(files_to_try) < N_DQNS and os.path.exists(DQN_MODEL_FILE):
+    needed = N_DQNS - len(files_to_try)
+    files_to_try.extend([DQN_MODEL_FILE] * needed)
+
+# Try to load each file; if not available or torch missing, append None (random fallback)
+for idx in range(N_DQNS):
+    model_path = files_to_try[idx] if idx < len(files_to_try) else None
+    if TORCH_AVAILABLE and model_path is not None and os.path.exists(model_path):
+        try:
+            m = DQN().to(device)
+            m.load_state_dict(torch.load(model_path, map_location=device))
+            m.eval()
+            dqn_models.append(m)
+            dqn_model_loaded_flags.append(True)
+            print(f"[DQN #{idx+1}] Loaded model: {model_path}")
+        except Exception as e:
+            print(f"[DQN #{idx+1}] Failed to load {model_path}: {e} -- falling back to random policy")
+            dqn_models.append(None)
+            dqn_model_loaded_flags.append(False)
     else:
-        print(f"Warning: DQN model file '{DQN_MODEL_FILE}' not found. DQN follower will not run.")
-else:
-    print("Warning: PyTorch not available. DQN follower will not run.")
-
-def obs_to_state_dqn(obs):
-    Z1, Z2, Z3, Z4, Z5, Z6 = obs
-    return np.array([
-        Z1 / Q_TABLE_BASE_SIZE,
-        Z2 / Q_TABLE_BASE_SIZE,
-        Z3 / HEADING_MAX,
-        Z4 / (ROLL_MAX - 1),
-        Z5 / (ROLL_MAX - 1),
-        Z6 / (CHOICES - 1)
-    ], dtype=np.float32)
+        if model_path is None:
+            print(f"[DQN #{idx+1}] No model path provided; using random policy.")
+        else:
+            print(f"[DQN #{idx+1}] Model file not found ({model_path}); using random policy.")
+        dqn_models.append(None)
+        dqn_model_loaded_flags.append(False)
 
 # -------------------------
-# Run episodes & collect traces (DQN follower included)
+# Run episodes & collect traces (multi DQN supported)
 # -------------------------
-episode_rewards = []
-
+print("Starting episodes with N_DQNS =", N_DQNS)
 distsQ = []
 distsS = []
 distsM = []
-distsD = []  # DQN distances
+distsD_list = [ [] for _ in range(N_DQNS) ]  # per-DQN distances list of episodes
 
 hitsQ = 0
 hitsS = 0
 hitsM = 0
-hitsD = 0  # DQN hits
+hitsD = [0]*N_DQNS
 
-print("Starting episodes")
+episode_rewards = []
 
 for episode in range(HM_EPISODES):
     enemy = Plane(np.floor(SIZE/2), np.floor(SIZE/2))
     player = Plane(enemy.x + SAFE_DISTANCE_HIGH,enemy.y + SAFE_DISTANCE_HIGH)   # Q
     player2 = Plane(enemy.x + SAFE_DISTANCE_HIGH,enemy.y + SAFE_DISTANCE_HIGH)  # MC
     player3 = Plane(enemy.x + SAFE_DISTANCE_HIGH,enemy.y + SAFE_DISTANCE_HIGH)  # SARSA
-    player4 = Plane(enemy.x + SAFE_DISTANCE_HIGH,enemy.y + SAFE_DISTANCE_HIGH)  # DQN
+    players_dqn = [Plane(enemy.x + SAFE_DISTANCE_HIGH, enemy.y + SAFE_DISTANCE_HIGH) for _ in range(N_DQNS)]
 
-    player.heading = enemy.heading
-    player.roll = enemy.roll
-
-    player2.heading = enemy.heading
-    player2.roll = enemy.roll
-
-    player3.heading = enemy.heading
-    player3.roll = enemy.roll
-
-    player4.heading = enemy.heading
-    player4.roll = enemy.roll
+    # sync initial heading/roll
+    for p in (player, player2, player3):
+        p.heading = enemy.heading
+        p.roll = enemy.roll
+    for p in players_dqn:
+        p.heading = enemy.heading
+        p.roll = enemy.roll
 
     env = np.zeros((SIZE, SIZE, 3), dtype=np.uint8)
     img = Image.fromarray(env, 'RGB')
     img = img.resize((SHOW_SIZE, SHOW_SIZE+120), resample=Image.NEAREST)
 
     if episode % SHOW_EVERY == 0:
+        print(f'Episode {episode}/{HM_EPISODES}')
         show = True
     else:
         show = False
@@ -294,12 +337,9 @@ for episode in range(HM_EPISODES):
     player1_dots = []
     player2_dots = []
     player3_dots = []
-    player4_dots = []
+    players_dqn_dots = [ [] for _ in range(N_DQNS) ]
 
-    if(episode%100 == 0):
-        print(f'-Episode {episode} of {HM_EPISODES}')
-
-    for i in range(300):
+    for i in range(STEPS_PER_EPISODE):
         # random-ish command as in original
         roll_command = np.random.randint(0, 7)
         if roll_command >= 2:
@@ -322,7 +362,6 @@ for episode in range(HM_EPISODES):
         obs = (Z1, Z2, Z3, Z4, Z5, Z6)
         action = np.argmax(q_table[obs])
         player.action(action)
-
 
         # MC follower (player2)
         Z1_Z2 = get_tuple(enemy.x, enemy.y, player2.x, player2.y, enemy.heading*360/HEADING_MAX)
@@ -348,29 +387,32 @@ for episode in range(HM_EPISODES):
         action = np.argmax(sarsa_table[obs])
         player3.action(action)
 
-        # DQN follower (player4) - only if model loaded
-        if dqn_model is not None:
-            Z1_Z2 = get_tuple(enemy.x, enemy.y, player4.x, player4.y, enemy.heading*360/HEADING_MAX)
+        # Multi-DQN followers
+        for idx in range(N_DQNS):
+            p4 = players_dqn[idx]
+            # build obs for this DQN follower
+            Z1_Z2 = get_tuple(enemy.x, enemy.y, p4.x, p4.y, enemy.heading*360/HEADING_MAX)
             Z1 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[0]), Q_TABLE_BASE_SIZE-1)
             Z2 = min(max(-Q_TABLE_BASE_SIZE, Z1_Z2[1]), Q_TABLE_BASE_SIZE-1)
-            Z3 = (enemy.heading-player4.heading)%HEADING_MAX
+            Z3 = (enemy.heading-p4.heading)%HEADING_MAX
             Z4 = enemy.get_discrete_roll()
-            Z5 = player4.get_discrete_roll()
+            Z5 = p4.get_discrete_roll()
             Z6 = roll_command
             obs_dqn = (Z1, Z2, Z3, Z4, Z5, Z6)
-            state = obs_to_state_dqn(obs_dqn)
-            state_t = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-            with torch.no_grad():
-                action = int(torch.argmax(dqn_model(state_t)).item())
-            player4.action(action)
-        else:
-            # fallback: random action if model not available (keeps simulation running)
-            player4.action(np.random.randint(0, CHOICES))
+            if dqn_models[idx] is not None and TORCH_AVAILABLE:
+                state = obs_to_state_dqn(obs_dqn)
+                state_t = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+                with torch.no_grad():
+                    action_dqn = int(torch.argmax(dqn_models[idx](state_t)).item())
+                p4.action(action_dqn)
+            else:
+                # random fallback
+                p4.action(np.random.randint(0, CHOICES))
 
         # leader moves
         enemy.action(roll_command)
 
-        # compute reward and distance (for metrics, same as original)
+        # compute distance & reward for primary (player) for metrics
         distance = math.dist([player_aprox_X, player_aprox_Y], [enemy_aprox_X, enemy_aprox_Y])
 
         beta = 0.5
@@ -382,117 +424,120 @@ for episode in range(HM_EPISODES):
         g = max(d, (b1*Z3_)/(np.pi*(1+beta*d)))
         reward = -g
 
-        # log positions for trajectory averaging
+        # record dots for averaging
         enemy_dots.append((enemy.x*ZOOM, enemy.y*ZOOM))
         player1_dots.append((player.x*ZOOM, player.y*ZOOM))
         player2_dots.append((player2.x*ZOOM, player2.y*ZOOM))
         player3_dots.append((player3.x*ZOOM, player3.y*ZOOM))
-        player4_dots.append((player4.x*ZOOM, player4.y*ZOOM))
+        for idx in range(N_DQNS):
+            players_dqn_dots[idx].append((players_dqn[idx].x*ZOOM, players_dqn[idx].y*ZOOM))
 
-        # get hits
+        # hits
         if(int(enemy.x) == int(player.x) and int(enemy.y) == int(player.y)):
             hitsQ += 1
         if(int(enemy.x) == int(player2.x) and int(enemy.y) == int(player2.y)):
             hitsM += 1
         if(int(enemy.x) == int(player3.x) and int(enemy.y) == int(player3.y)):
             hitsS += 1
-        if(int(enemy.x) == int(player4.x) and int(enemy.y) == int(player4.y)):
-            hitsD += 1
+        for idx in range(N_DQNS):
+            p4 = players_dqn[idx]
+            if(int(enemy.x) == int(p4.x) and int(enemy.y) == int(p4.y)):
+                hitsD[idx] += 1
 
         episode_reward += reward
         if reward == -ENEMY_PENALTY:
             break
 
     # compute distances time series (convert back to grid coords)
-    enemy_dotsX = []
-    enemy_dotsY = []
-    for dot in enemy_dots:
-        enemy_dotsX.append(dot[0]/ZOOM)
-        enemy_dotsY.append(SIZE-(dot[1]/ZOOM))
+    enemy_dotsX = [dot[0]/ZOOM for dot in enemy_dots]
+    enemy_dotsY = [SIZE - (dot[1]/ZOOM) for dot in enemy_dots]
 
     distances1 = []
-    i=0
-    for dot in player1_dots:
+    for i, dot in enumerate(player1_dots):
         distances1.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-        i+=1
 
     distances2 = []
-    i=0
-    for dot in player2_dots:
+    for i, dot in enumerate(player2_dots):
         distances2.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-        i+=1
 
     distances3 = []
-    i=0
-    for dot in player3_dots:
+    for i, dot in enumerate(player3_dots):
         distances3.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-        i+=1
 
-    distances4 = []
-    i=0
-    for dot in player4_dots:
-        distances4.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
-        i+=1
+    distances4_list = []
+    for idx in range(N_DQNS):
+        distances4 = []
+        for i, dot in enumerate(players_dqn_dots[idx]):
+            distances4.append(math.dist([dot[0]/ZOOM, SIZE-(dot[1]/ZOOM)], [enemy_dotsX[i], enemy_dotsY[i]]))
+        distances4_list.append(distances4)
 
     distsQ.append(list(distances1))
-    distsS.append(list(distances3))
     distsM.append(list(distances2))
-    distsD.append(list(distances4))
+    distsS.append(list(distances3))
+    for idx in range(N_DQNS):
+        distsD_list[idx].append(list(distances4_list[idx]))
 
     episode_rewards.append(episode_reward)
 
 # -------------------------
 # Compute average distance per time-step across episodes
 # -------------------------
-print("Teorico: ", str(len(distsQ)), "por", HM_EPISODES)
-print("QL: ", str(len(distsQ)), "por", str(len(distsQ[0])))
-
+print("Episodes run:", HM_EPISODES)
 print(f"Q-Learning hits: {hitsQ}")
 print(f"Monte Carlo hits: {hitsM}")
 print(f"SARSA hits: {hitsS}")
-print(f"DQN hits: {hitsD}")
+for idx in range(N_DQNS):
+    print(f"DQN #{idx+1} hits: {hitsD[idx]} (model_loaded={dqn_model_loaded_flags[idx]})")
 
-distsQavg = []
-for i in range(300):
-    totalQ = 0
-    for j in range(HM_EPISODES):
-        totalQ += distsQ[j][i]
-    distsQavg.append(totalQ/len(distsQ))
+def avg_across_episodes(dlist, steps=STEPS_PER_EPISODE):
+    # dlist: list of episodes, each a list of distances per step
+    avg = []
+    n = len(dlist)
+    for i in range(steps):
+        s = 0.0
+        count = 0
+        for ep in dlist:
+            # some episodes may be shorter (if broken early); guard index
+            if i < len(ep):
+                s += ep[i]
+                count += 1
+        avg.append(s / max(1, count))
+    return avg
 
-distsSavg = []
-for i in range(300):
-    totalS = 0
-    for j in range(HM_EPISODES):
-        totalS += distsS[j][i]
-    distsSavg.append(totalS/len(distsS))
+distsQavg = avg_across_episodes(distsQ, steps=STEPS_PER_EPISODE)
+distsMavg = avg_across_episodes(distsM, steps=STEPS_PER_EPISODE)
+distsSavg = avg_across_episodes(distsS, steps=STEPS_PER_EPISODE)
+distsDavg_list = [avg_across_episodes(distsD_list[idx], steps=STEPS_PER_EPISODE) for idx in range(N_DQNS)]
 
-distsMavg = []
-for i in range(300):
-    totalM = 0
-    for j in range(HM_EPISODES):
-        totalM += distsM[j][i]
-    distsMavg.append(totalM/len(distsM))
-
-distsDavg = []
-for i in range(300):
-    totalD = 0
-    for j in range(HM_EPISODES):
-        totalD += distsD[j][i]
-    distsDavg.append(totalD/len(distsD))
+# group mean across DQNs
+dqn_group_mean = []
+for step in range(STEPS_PER_EPISODE):
+    s = 0.0
+    for idx in range(N_DQNS):
+        s += distsDavg_list[idx][step]
+    dqn_group_mean.append(s / N_DQNS)
 
 # -------------------------
-# Plot averages including DQN
+# Plot averages including all DQNs and mean
 # -------------------------
-plt.rcParams["figure.figsize"] = (10,10)
+plt.rcParams["figure.figsize"] = (12,8)
 plt.plot(distsQavg, color="red", label="Q-Learning")
 plt.plot(distsSavg, color="green", label="SARSA")
 plt.plot(distsMavg, color="blue", label="Monte Carlo")
-plt.plot(distsDavg, color="purple", label="DQN")
-plt.hlines(y=SAFE_DISTANCE_LOW, xmin=0, xmax=299, colors='grey', linestyles='--', lw=2, label='b1')
-plt.hlines(y=SAFE_DISTANCE_HIGH, xmin=0, xmax=299, colors='grey', linestyles='--', lw=2, label='b2')
+
+# individual DQNs (lighter colors)
+for idx in range(N_DQNS):
+    clr = tuple(c/255 for c in dqn_colors[idx])
+    plt.plot(distsDavg_list[idx], color=clr, alpha=0.6, label=f"DQN #{idx+1}")
+
+# DQN group mean (bold purple)
+plt.plot(dqn_group_mean, color="purple", linewidth=3, label="DQN mean")
+
+plt.hlines(y=SAFE_DISTANCE_LOW, xmin=0, xmax=STEPS_PER_EPISODE-1, colors='grey', linestyles='--', lw=2, label='b1')
+plt.hlines(y=SAFE_DISTANCE_HIGH, xmin=0, xmax=STEPS_PER_EPISODE-1, colors='grey', linestyles='--', lw=2, label='b2')
 plt.ylabel("Distância")
 plt.xlabel("Passo")
-plt.title("Comparação da distância entre o Líder e os Seguidores durante " + str(HM_EPISODES) + " episódios")
-plt.legend(["Q-Learning", "SARSA", "Monte Carlo", "DQN"], loc='lower center', bbox_to_anchor=(0.5, -0.11),
-          fancybox=True, shadow=True, ncol=4)
+plt.title(f"Comparação da distância entre o Líder e os Seguidores durante {HM_EPISODES} episódios (avg over episodes)")
+plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.18), fancybox=True, shadow=True, ncol=4)
+plt.tight_layout()
 plt.show()
